@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Hiển thị giao diện localhost</title>
+  <title>Giao diện ứng dụng</title>
   <style>
     :root {
       color-scheme: dark;
@@ -12,195 +12,70 @@
       color: #e8ecf5;
     }
 
-    * {
-      box-sizing: border-box;
-    }
-
     body {
       margin: 0;
+      background: #0b1020;
     }
 
-    main,
     iframe {
       position: fixed;
       inset: 0;
       width: 100%;
       height: 100%;
-    }
-
-    iframe {
       display: block;
       border: 0;
       background: #fff;
     }
 
-    #settings {
-      position: fixed;
-      z-index: 1;
-      top: 12px;
-      left: 12px;
-      max-width: calc(100vw - 24px);
-      font-size: 13px;
-    }
-
-    #settings summary {
-      display: grid;
-      width: 16px;
-      height: 16px;
-      place-items: center;
-      padding: 0;
-      border: 0;
-      background: transparent;
-      cursor: pointer;
-      list-style: none;
-    }
-
-    #settings summary::-webkit-details-marker {
+    iframe[hidden] {
       display: none;
     }
 
-    #settings summary::before {
-      width: 0;
-      height: 0;
-      border-top: 6px solid transparent;
-      border-bottom: 6px solid transparent;
-      border-left: 8px solid currentColor;
-      content: "";
-      transition: transform 150ms ease;
-    }
-
-    #settings[open] summary::before {
-      transform: rotate(90deg);
-    }
-
-    #settings-content {
-      width: min(520px, calc(100vw - 24px));
-      margin-top: 8px;
-      padding: 14px;
-      border: 1px solid #35415a;
-      border-radius: 10px;
-      background: #11182a;
-      box-shadow: 0 8px 28px #0008;
-    }
-
-    form {
-      display: flex;
-      gap: 10px;
-    }
-
-    input {
-      flex: 1;
-      min-width: 0;
-      padding: 11px 13px;
-      border: 1px solid #35415a;
-      border-radius: 8px;
-      outline: none;
-      background: #0b1020;
-      color: inherit;
-      font: inherit;
-    }
-
-    input:focus {
-      border-color: #7c9cff;
-      box-shadow: 0 0 0 3px #7c9cff24;
-    }
-
-    button {
-      padding: 0 18px;
-      border: 0;
-      border-radius: 8px;
-      background: #7896ff;
-      color: #0b1020;
-      font: inherit;
-      font-weight: 650;
-      cursor: pointer;
-    }
-
-    button:hover {
-      background: #91a8ff;
-    }
-
-    .hint {
-      margin: 10px 0 0;
+    #empty {
+      display: grid;
+      min-height: 100vh;
+      place-items: center;
+      padding: 16px;
       color: #a7b0c3;
-    }
-
-    #status {
-      min-height: 20px;
-      margin-top: 8px;
-      color: #ffc98b;
-      font-size: 13px;
-    }
-
-    @media (max-width: 560px) {
-      form {
-        flex-direction: column;
-      }
-
-      button {
-        min-height: 42px;
-      }
+      text-align: center;
     }
   </style>
 </head>
 <body>
-  <main>
-    <iframe id="preview" title="Giao diện ứng dụng"></iframe>
-  </main>
-  <details id="settings">
-    <summary aria-label="Địa chỉ giao diện" title="Địa chỉ giao diện"></summary>
-    <div id="settings-content">
-    <form id="url-form">
-      <input
-        id="url-input"
-        type="text"
-        inputmode="url"
-        autocomplete="url"
-        spellcheck="false"
-        aria-label="Địa chỉ localhost"
-        required
-      >
-      <button type="submit">Hiển thị</button>
-    </form>
-    <p class="hint">Trang chính giữ nguyên tên miền; giao diện được hiển thị toàn màn hình.</p>
-    <div id="status" role="status" aria-live="polite"></div>
-    </div>
-  </details>
+  <iframe id="preview" title="Giao diện ứng dụng" hidden></iframe>
+  <div id="empty">Đang kết nối…</div>
 
-  <script>
-    const form = document.querySelector("#url-form");
-    const input = document.querySelector("#url-input");
+  <script type="module">
+    import { firebaseConfig, FIREBASE_SDK } from "./firebase-config.js";
+
     const preview = document.querySelector("#preview");
-    const status = document.querySelector("#status");
-    const loopbackHosts = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
+    const empty = document.querySelector("#empty");
 
-    // Mặc định để trống, người dùng tự nhập địa chỉ
-    input.placeholder = "http://localhost:3000";
-    document.querySelector("#settings").open = true;
+    try {
+      const { initializeApp } = await import(`${FIREBASE_SDK}/firebase-app.js`);
+      const { getDatabase, ref, onValue } = await import(`${FIREBASE_SDK}/firebase-database.js`);
 
-    form.addEventListener("submit", (event) => {
-      event.preventDefault();
-      const value = input.value.trim();
+      const db = getDatabase(initializeApp(firebaseConfig));
 
-      try {
-        const url = new URL(value.includes("://") ? value : `http://${value}`);
-        if (!["http:", "https:"].includes(url.protocol)) {
-          throw new Error("Chỉ hỗ trợ địa chỉ HTTP hoặc HTTPS.");
+      // Theo dõi tên miền đang được chia sẻ, cập nhật ngay khi trang nhập thay đổi
+      onValue(ref(db, "current"), (snapshot) => {
+        const url = snapshot.val()?.url;
+        if (url) {
+          if (preview.src !== url) preview.src = url;
+          preview.hidden = false;
+          empty.hidden = true;
+        } else {
+          preview.removeAttribute("src");
+          preview.hidden = true;
+          empty.hidden = false;
+          empty.textContent = "Hiện chưa có trang nào được chia sẻ.";
         }
-        if (url.origin !== window.location.origin
-            && !loopbackHosts.has(url.hostname.toLowerCase())) {
-          throw new Error("Địa chỉ phải cùng tên miền hiện tại hoặc trỏ đến localhost.");
-        }
-
-        input.value = url.href;
-        status.textContent = "";
-        preview.src = url.href;
-      } catch (error) {
-        status.textContent = error instanceof TypeError
-          ? "Địa chỉ không hợp lệ. Hãy nhập URL như http://localhost:3000."
-          : error.message;
-      }
-    });
+      }, () => {
+        empty.textContent = "Không đọc được dữ liệu. Kiểm tra lại cấu hình Firebase.";
+      });
+    } catch {
+      empty.textContent = "Không kết nối được Firebase. Kiểm tra file firebase-config.js.";
+    }
   </script>
 </body>
 </html>

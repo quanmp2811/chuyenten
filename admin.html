@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Nhập tên miền</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: #0b1020;
+      color: #e8ecf5;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      display: grid;
+      min-height: 100vh;
+      margin: 0;
+      padding: 16px;
+      place-items: center;
+      background: #0b1020;
+    }
+
+    .card {
+      width: min(560px, 100%);
+      padding: 20px;
+      border: 1px solid #35415a;
+      border-radius: 12px;
+      background: #11182a;
+    }
+
+    h1 {
+      margin: 0 0 14px;
+      font-size: 20px;
+    }
+
+    form {
+      display: flex;
+      gap: 10px;
+    }
+
+    input {
+      flex: 1;
+      min-width: 0;
+      padding: 11px 13px;
+      border: 1px solid #35415a;
+      border-radius: 8px;
+      outline: none;
+      background: #0b1020;
+      color: inherit;
+      font: inherit;
+    }
+
+    input:focus {
+      border-color: #7c9cff;
+      box-shadow: 0 0 0 3px #7c9cff24;
+    }
+
+    button {
+      min-height: 42px;
+      padding: 0 18px;
+      border: 0;
+      border-radius: 8px;
+      background: #7896ff;
+      color: #0b1020;
+      font: inherit;
+      font-weight: 650;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: #91a8ff;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
+
+    button.secondary {
+      background: #2a3550;
+      color: #e8ecf5;
+    }
+
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .hint {
+      margin: 14px 0 0;
+      color: #a7b0c3;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    #status {
+      min-height: 20px;
+      margin-top: 12px;
+      font-size: 14px;
+    }
+
+    #status.ok {
+      color: #8be0a4;
+    }
+
+    #status.warn {
+      color: #ffc98b;
+    }
+
+    @media (max-width: 560px) {
+      form {
+        flex-direction: column;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Nhập tên miền để chia sẻ</h1>
+    <form id="url-form">
+      <input
+        id="url-input"
+        type="text"
+        inputmode="url"
+        autocomplete="url"
+        spellcheck="false"
+        placeholder="https://ten-mien-cua-ban.com"
+        aria-label="Tên miền"
+        required
+      >
+      <button type="submit" id="share-btn" disabled>Chia sẻ</button>
+    </form>
+    <div class="row">
+      <button type="button" class="secondary" id="stop-btn" disabled>Dừng chia sẻ</button>
+      <button type="button" class="secondary" id="copy-btn">Sao chép link trang chính</button>
+    </div>
+    <div id="status" role="status" aria-live="polite">Đang kết nối…</div>
+    <p class="hint">
+      Giữ trang này mở trong lúc chia sẻ. Khi bạn đóng trang này,
+      tên miền sẽ tự động bị xoá và trang chính sẽ trống.
+    </p>
+  </div>
+
+  <script type="module">
+    import { firebaseConfig, FIREBASE_SDK } from "./firebase-config.js";
+
+    const form = document.querySelector("#url-form");
+    const input = document.querySelector("#url-input");
+    const shareBtn = document.querySelector("#share-btn");
+    const stopBtn = document.querySelector("#stop-btn");
+    const copyBtn = document.querySelector("#copy-btn");
+    const status = document.querySelector("#status");
+
+    const mainPageUrl = new URL("./", window.location.href).href;
+
+    const setStatus = (text, kind = "") => {
+      status.textContent = text;
+      status.className = kind;
+    };
+
+    copyBtn.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(mainPageUrl);
+        setStatus(`Đã sao chép: ${mainPageUrl}`, "ok");
+      } catch {
+        setStatus(`Link trang chính: ${mainPageUrl}`, "ok");
+      }
+    });
+
+    try {
+      const { initializeApp } = await import(`${FIREBASE_SDK}/firebase-app.js`);
+      const { getAuth, signInAnonymously } = await import(`${FIREBASE_SDK}/firebase-auth.js`);
+      const { getDatabase, ref, set, remove, onValue, onDisconnect } =
+        await import(`${FIREBASE_SDK}/firebase-database.js`);
+
+      const app = initializeApp(firebaseConfig);
+      const db = getDatabase(app);
+      const { user } = await signInAnonymously(getAuth(app));
+      const currentRef = ref(db, "current");
+
+      // Tên miền đang chia sẻ, chỉ tồn tại khi trang này còn mở
+      let sharedUrl = null;
+
+      const publish = async (url) => {
+        // Đăng ký xoá tự động trước, để đóng trang lúc nào cũng xoá được
+        await onDisconnect(currentRef).remove();
+        await set(currentRef, { url, owner: user.uid, updatedAt: Date.now() });
+      };
+
+      // Mất mạng rồi có lại: máy chủ đã xoá, nên ghi lại tên miền
+      onValue(ref(db, ".info/connected"), (snap) => {
+        if (snap.val() === true && sharedUrl) {
+          publish(sharedUrl).catch(() => {});
+        }
+      });
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const value = input.value.trim();
+
+        let url;
+        try {
+          url = new URL(value.includes("://") ? value : `https://${value}`);
+          if (!["http:", "https:"].includes(url.protocol)) throw new TypeError();
+        } catch {
+          setStatus("Tên miền không hợp lệ. Ví dụ: https://ten-mien-cua-ban.com", "warn");
+          return;
+        }
+
+        try {
+          await publish(url.href);
+          sharedUrl = url.href;
+          input.value = url.href;
+          stopBtn.disabled = false;
+          const httpWarn = url.protocol === "http:" && window.location.protocol === "https:"
+            ? " Lưu ý: địa chỉ http:// có thể bị trình duyệt chặn, nên dùng https://."
+            : "";
+          setStatus(`Đang chia sẻ ${url.href}.${httpWarn}`, httpWarn ? "warn" : "ok");
+        } catch {
+          setStatus("Không lưu được. Có thể một trang nhập khác đang chia sẻ, hoặc chưa cài quy tắc Firebase.", "warn");
+        }
+      });
+
+      stopBtn.addEventListener("click", async () => {
+        sharedUrl = null;
+        stopBtn.disabled = true;
+        try {
+          await remove(currentRef);
+          await onDisconnect(currentRef).cancel();
+          setStatus("Đã dừng chia sẻ. Trang chính đang trống.", "ok");
+        } catch {
+          setStatus("Không xoá được, thử lại.", "warn");
+        }
+      });
+
+      shareBtn.disabled = false;
+      setStatus("Sẵn sàng. Nhập tên miền rồi bấm Chia sẻ.");
+    } catch {
+      setStatus("Không kết nối được Firebase. Kiểm tra file firebase-config.js và bật Anonymous sign-in.", "warn");
+    }
+  </script>
+</body>
+</html>
