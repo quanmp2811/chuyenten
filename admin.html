@@ -243,8 +243,12 @@
 
       shareBtn.disabled = false;
       setStatus("Sẵn sàng. Nhập tên miền rồi bấm Chia sẻ.");
-    } catch {
-      setStatus("Không kết nối được Firebase. Kiểm tra file firebase-config.js và bật Anonymous sign-in.", "warn");
+    } catch (error) {
+      const code = error?.code || error?.message || "unknown";
+      const reason = code === "auth/admin-restricted-operation" || code === "auth/operation-not-allowed"
+        ? "Chưa bật đăng nhập Anonymous trong Firebase Authentication."
+        : "Không kết nối được Firebase.";
+      setStatus(`${reason} (Mã lỗi: ${code})`, "warn");
     }
   </script>
 </body>
