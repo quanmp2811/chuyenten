@@ -174,11 +174,9 @@
     const status = document.querySelector("#status");
     const loopbackHosts = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
 
-    const defaultUrl = window.location.protocol === "file:"
-      ? "http://localhost:3939/themes/chua/"
-      : `${window.location.origin}/themes/chua/`;
-    input.value = defaultUrl;
-    preview.src = defaultUrl;
+    // Mặc định để trống, người dùng tự nhập địa chỉ
+    input.placeholder = "http://localhost:3000";
+    document.querySelector("#settings").open = true;
 
     form.addEventListener("submit", (event) => {
       event.preventDefault();
